@@ -1868,6 +1868,12 @@ def test_authorize_request_retries_with_resource_name_after_broad_denial(monkeyp
 
 
 def test_authorize_request_allows_mcp_version_create_with_broad_update(monkeypatch):
+    """Locks in the reviewed design: `update` is an upsert verb for this endpoint —
+    it covers both "append a version to an existing MCP server" and "create a
+    brand-new MCP server" (parent auto-created). `create` is deliberately not
+    required for the latter case; see the comment on this route in
+    rules_v3_14.py::apply_mcp_registry_deltas for the full rationale
+    (avoiding a TOCTOU-prone existence check at authorization time)."""
     authorizer = Mock()
     authorizer.is_allowed.return_value = True
     rule = AuthorizationRule(

@@ -120,6 +120,21 @@ def apply_mcp_registry_deltas(
                     "list",
                     collection_policy=COLLECTION_POLICY_RESPONSE_MCP_ACCESS_ENDPOINTS,
                 ),
+                # `update` here is intentionally an upsert-style verb, not the usual
+                # "resource must already exist" semantics used elsewhere in this table.
+                # register_mcp_server()/create_mcp_server_version() hit this single
+                # endpoint whether `name` is brand new (parent MCPServer auto-created)
+                # or already exists (a version is appended) — there is no separate
+                # client-visible "create the parent" call in the genai SDK surface.
+                # `create` is intentionally NOT required here, even for the "brand new
+                # server" case: it only guards the low-level, mostly-unused
+                # MlflowClient.create_mcp_server() call (bare POST above). Requiring
+                # `create` in addition would mean branching this check on whether
+                # `name` currently exists, which is inherently racy (TOCTOU between
+                # the existence check and the actual write) — reviewed and rejected in
+                # favor of this single, static, race-free `update` check. Do not "fix"
+                # this to dynamically require `create` for non-existent servers without
+                # re-litigating that tradeoff.
                 (f"{prefix}/<path:name>/versions", "POST"): _mcp_servers_rule(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
@@ -136,6 +151,19 @@ def apply_mcp_registry_deltas(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
                 ),
+                # This DELETE maps to "update", not "delete" -- and so does every other
+                # sub-resource POST/PATCH/DELETE route below (version tags, server tags,
+                # aliases, access endpoints), regardless of HTTP method. "delete" is
+                # reserved exclusively for the top-level MCPServer's own
+                # DELETE {prefix}/<name> route at the bottom of this table. Rationale:
+                # creating, modifying, or removing a resource that hangs off a server
+                # (a version, tag, alias, or endpoint) is all just "editing the parent
+                # MCPServer" from an authorization standpoint -- there is no separate
+                # permission tier in the MCP registry model for e.g. deleting a tag vs.
+                # creating one. Do not "fix" these DELETE entries to use "delete"; that
+                # would require a distinct, more permissive grant for removing a
+                # sub-resource than for creating/editing it, which doesn't reflect how
+                # MCP registry permissions are actually scoped.
                 (f"{prefix}/<path:name>/versions/<path:version>", "DELETE"): _mcp_servers_rule(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
@@ -144,6 +172,7 @@ def apply_mcp_registry_deltas(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
                 ),
+                # Same "sub-resource mutation of the server = update" rule as above -- not a typo.
                 (
                     f"{prefix}/<path:name>/versions/<path:version>/tags/<path:key>",
                     "DELETE",
@@ -167,6 +196,7 @@ def apply_mcp_registry_deltas(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
                 ),
+                # Same "sub-resource mutation of the server = update" rule as above -- not a typo.
                 (f"{prefix}/<path:name>/endpoints/<endpoint_id>", "DELETE"): _mcp_servers_rule(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
@@ -175,6 +205,7 @@ def apply_mcp_registry_deltas(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
                 ),
+                # Same "sub-resource mutation of the server = update" rule as above -- not a typo.
                 (f"{prefix}/<path:name>/tags/<path:key>", "DELETE"): _mcp_servers_rule(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
@@ -187,6 +218,7 @@ def apply_mcp_registry_deltas(
                     "get",
                     resource_name_parsers=mcp_server_name_parsers,
                 ),
+                # Same "sub-resource mutation of the server = update" rule as above -- not a typo.
                 (f"{prefix}/<path:name>/aliases/<path:alias>", "DELETE"): _mcp_servers_rule(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
@@ -200,6 +232,9 @@ def apply_mcp_registry_deltas(
                     "update",
                     resource_name_parsers=mcp_server_name_parsers,
                 ),
+                # Unlike every sub-resource DELETE above, this route deletes the
+                # MCPServer object itself, so it's the only one in this table that
+                # actually maps to "delete".
                 (f"{prefix}/<path:name>", "DELETE"): _mcp_servers_rule(
                     "delete",
                     resource_name_parsers=mcp_server_name_parsers,
